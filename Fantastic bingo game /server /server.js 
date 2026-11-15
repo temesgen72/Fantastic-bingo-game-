@@ -1,0 +1,72 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
+
+// የጨዋታው ሁኔታ (Game State)
+let countdown = 16;
+let potPrize = 2560.00;
+let totalCardsPlaced = 320;
+let userBets = [];
+
+// በየሰከንዱ የሚሰራ የሰዓት ቆጣሪ (Real-time Timer Loop)
+setInterval(() => {
+  countdown--;
+
+  if (countdown <= 0) {
+    // 1. ከ 75 ቁጥሮች ውስጥ 12 የዕድል ቁጥሮች ማውጣት
+    const drawnNumbers = [];
+    while (drawnNumbers.length < 12) {
+      const num = Math.floor(Math.random() * 75) + 1;
+      if (!drawnNumbers.includes(num)) drawnNumbers.push(num);
+    }
+
+    // 2. ለሁሉም ተጫዋቾች የዕጣውን ውጤት በአንድ ጊዜ መላክ
+    io.emit('game_draw', { 
+      drawnNumbers, 
+      potPrize,
+      roundId: Math.floor(1000 + Math.random() * 9000)
+    });
+
+    // 3. ሰዓቱን እና ውርርዶችን ማደስ
+    countdown = 20;
+    userBets = [];
+  }
+
+  // የሰዓት ቆጣሪ መረጃን ለሁሉም መላክ
+  io.emit('timer_tick', { countdown });
+}, 1000);
+
+// የ Socket ግንኙነቶች
+io.on('connection', (socket) => {
+  console.log('ተጫዋች ተገናኝቷል:', socket.id);
+
+  // ተጫዋች ሲገባ አሁን ያለውን የሰዓት ሁኔታ መላክ
+  socket.emit('timer_tick', { countdown, potPrize, totalCardsPlaced });
+
+  // ካርድ ሲቆረጥ (Betting)
+  socket.on('place_bet', (data) => {
+    userBets.push({ socketId: socket.id, ...data });
+    totalCardsPlaced += 1;
+    potPrize += data.amount * 0.8; // 80% ወደ POT PRIZE ይገባል
+    
+    io.emit('update_pot', { potPrize, totalCardsPlaced });
+    socket.emit('bet_confirmed', { success: true, cardId: data.cardId });
+  });
+
+  socket.on('disconnect', () => {
+    console.log('ተጫዋች ወጥቷል:', socket.id);
+  });
+});
+
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

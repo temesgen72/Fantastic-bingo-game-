@@ -1,0 +1,304 @@
+import React, { useState, useEffect } from 'react';
+import io from 'socket.io-client';
+import WebApp from '@twa-dev/sdk';
+import { Volume2, Plus, Wallet, Trophy, History, Settings, Gamepad2, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+
+const socket = io('http://localhost:5000');
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('bingo');
+  const [walletTab, setWalletTab] = useState('deposit');
+  const [user, setUser] = useState({ name: 'Guest Player', balance: 0.00 });
+  const [timeLeft, setTimeLeft] = useState(16);
+  const [potPrize, setPotPrize] = useState(2560.00);
+  const [cardsCount, setCardsCount] = useState(320);
+  const [inputCardNumber, setInputCardNumber] = useState('');
+  const [selectedCards, setSelectedCards] = useState([]);
+  const [drawnNumbers, setDrawnNumbers] = useState([]);
+  
+  // የክፍያ ምርጫዎች እና የሂሳብ ቁጥሮች
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('telebirr');
+  const [amount, setAmount] = useState(100);
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountName, setAccountName] = useState('');
+
+  // የተወሰኑ የንግድ/የመቀበያ ቁጥሮች ዝርዝር
+  const merchantAccounts = {
+    telebirr: { name: 'Telebirr', number: '0910845986', holder: 'Fantastic Bingo Telebirr' },
+    mpesa: { name: 'M-Pesa', number: '0717725751', holder: 'Fantastic Bingo M-Pesa' },
+    cbe: { name: 'CBE Birr', number: '0911725751', holder: 'Fantastic Bingo CBE' }
+  };
+
+  useEffect(() => {
+    try {
+      WebApp.ready();
+      WebApp.expand();
+      const tgUser = WebApp.initDataUnsafe?.user;
+      if (tgUser) {
+        setUser(prev => ({ ...prev, name: `${tgUser.first_name} ${tgUser.last_name || ''}` }));
+      }
+    } catch (e) {
+      console.log('Running outside Telegram');
+    }
+
+    socket.on('timer_tick', (data) => setTimeLeft(data.countdown));
+    socket.on('update_pot', (data) => {
+      setPotPrize(data.potPrize);
+      setCardsCount(data.totalCardsPlaced);
+    });
+    socket.on('game_draw', (data) => setDrawnNumbers(data.drawnNumbers));
+
+    return () => {
+      socket.off('timer_tick');
+      socket.off('update_pot');
+      socket.off('game_draw');
+    };
+  }, []);
+
+  const handleCutCard = (num) => {
+    const cardNum = num || parseInt(inputCardNumber);
+    if (!cardNum || cardNum < 1 || cardNum > 999) return alert('እባክዎን ትክክለኛ ካርድ ቁጥር ያስገቡ (1-999)');
+    if (selectedCards.includes(cardNum)) return alert('ይህ ካርድ ቀድሞ ተይዟል!');
+
+    setSelectedCards([...selectedCards, cardNum]);
+    socket.emit('place_bet', { cardId: cardNum, amount: 10 });
+    setInputCardNumber('');
+  };
+
+  const handleSubmitTransaction = () => {
+    if (!amount || amount <= 0) return alert('እባክዎን ትክክለኛ መጠን ያስገቡ');
+    if (walletTab === 'withdraw' && (!accountNumber || !accountName)) {
+      return alert('እባክዎን የመቀበያ ስልክ ቁጥርዎን እና ሙሉ ስምዎን ያስገቡ');
+    }
+    
+    alert(`${walletTab === 'deposit' ? 'የገንዘብ ማስገቢያ' : 'የገንዘብ ማውጫ'} ጥያቄዎ በተሳካ ሁኔታ ተልኳል!\nየተመረጠው አካውንት: ${merchantAccounts[selectedPaymentMethod].number}`);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#070c1a] text-white flex flex-col justify-between font-sans max-w-md mx-auto border-x border-slate-800 select-none pb-20">
+      
+      {/* HEADER */}
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 p-3 flex justify-between items-center shadow-lg border-b border-blue-700/40">
+        <div className="flex items-center space-x-2">
+          <div className="w-9 h-9 rounded-full bg-amber-400 border-2 border-yellow-200 flex items-center justify-center font-black text-slate-950 text-xs shadow-md">
+            FB
+          </div>
+          <div>
+            <h1 className="font-extrabold text-sm tracking-wide text-white flex items-center gap-1">
+              FANTASTIC BINGO <span className="text-amber-400">⚡</span>
+            </h1>
+            <p className="text-[10px] text-blue-200 truncate max-w-[120px]">{user.name}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <button className="bg-slate-900/60 p-1.5 rounded-full border border-slate-700 text-amber-400">
+            <Volume2 size={16} />
+          </button>
+          <div className="bg-slate-900/90 px-3 py-1 rounded-full border border-blue-500/50 flex items-center gap-2">
+            <span className="text-xs text-blue-300">ሒሳብ:</span>
+            <span className="text-emerald-400 font-bold text-xs">{user.balance.toFixed(2)} ETB</span>
+            <button onClick={() => setActiveTab('wallet')} className="bg-emerald-500 rounded-full p-0.5 text-slate-950 font-bold">
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* BINGO TAB */}
+      {activeTab === 'bingo' && (
+        <div className="p-3 space-y-3">
+          <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-950 p-3 rounded-2xl border border-emerald-500/40 flex justify-between items-center shadow-xl">
+            <div>
+              <span className="bg-red-600 text-[9px] font-black px-1.5 py-0.5 rounded text-white tracking-wider">NEW</span>
+              <h2 className="text-emerald-400 font-black text-base italic tracking-wider">FAST KENO 80</h2>
+              <p className="text-[10px] text-slate-300">በ 80 ሰከንድ 20 ቁጥሮች የሚወጡበት ፈጣን ጨዋታ!</p>
+              <p className="text-xs font-bold text-amber-400 mt-1">እስከ 30,000 ETB አሸንፉ</p>
+            </div>
+            <button className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1">
+              ተጫወት ►
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-center shadow-inner">
+              <p className="text-[11px] text-slate-400 font-medium">ድራሽ (POT PRIZE)</p>
+              <p className="text-xl font-black text-amber-400 mt-0.5">{potPrize.toFixed(2)} ETB</p>
+              <p className="text-[10px] text-slate-500">የተያዙ ካርዶች: {cardsCount}</p>
+            </div>
+            <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-center shadow-inner">
+              <p className="text-[11px] text-slate-400 font-medium">የካርድ ማጠናቀቂያ ሰዓት</p>
+              <p className="text-xl font-black text-cyan-400 mt-0.5">{timeLeft}s</p>
+              <p className="text-[10px] text-slate-500">ዙር #1162</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-300 font-bold">💳 ካርድ ቁጥር (1 - 999)</span>
+              <span className="text-amber-400 font-black">10 ETB</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                placeholder="ቁጥር (ለአብነት 232)"
+                value={inputCardNumber}
+                onChange={(e) => setInputCardNumber(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white w-full focus:outline-none focus:border-cyan-500"
+              />
+              <button onClick={() => handleCutCard()} className="bg-cyan-600 hover:bg-cyan-500 px-4 py-2 rounded-lg font-bold text-xs whitespace-nowrap">
+                ቁረጥ
+              </button>
+              <button onClick={() => handleCutCard(Math.floor(Math.random() * 999) + 1)} className="bg-emerald-600 hover:bg-emerald-500 px-3 py-2 rounded-lg font-bold text-xs whitespace-nowrap">
+                🔀 በዘፈቀደ
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/40 p-2 rounded-xl border border-slate-800/80">
+            <p className="text-[11px] text-slate-400 mb-2 font-medium">የካርዶች ዝርዝር (እስከ 999)</p>
+            <div className="grid grid-cols-6 gap-1.5 max-h-56 overflow-y-auto pr-1">
+              {Array.from({ length: 42 }, (_, i) => 955 + i).map((num) => {
+                const isTaken = selectedCards.includes(num);
+                return (
+                  <button
+                    key={num}
+                    onClick={() => handleCutCard(num)}
+                    className={`py-2 rounded-lg font-bold text-xs border transition-all ${
+                      isTaken ? 'bg-amber-500 text-slate-950 border-amber-400 scale-95' : 'bg-slate-900 border-slate-800 text-slate-200 hover:border-slate-700'
+                    }`}
+                  >
+                    {num}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WALLET TAB (DEPOSIT & WITHDRAW WITH UPDATED ACCOUNTS) */}
+      {activeTab === 'wallet' && (
+        <div className="p-4 space-y-4">
+          <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
+            <button 
+              onClick={() => setWalletTab('deposit')}
+              className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1 ${walletTab === 'deposit' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+            >
+              <ArrowDownCircle size={14}/> ማስገቢያ (Deposit)
+            </button>
+            <button 
+              onClick={() => setWalletTab('withdraw')}
+              className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1 ${walletTab === 'withdraw' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+            >
+              <ArrowUpCircle size={14}/> ማውጫ (Withdraw)
+            </button>
+          </div>
+
+          <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 space-y-3">
+            <p className="text-xs font-bold text-amber-400">
+              {walletTab === 'deposit' ? '💳 የክፍያ ዘዴ ይምረጡ (Deposit Method)' : '💸 የማውጫ መንገድ ይምረጡ (Withdrawal Method)'}
+            </p>
+
+            {/* Payment Method Selection Cards */}
+            <div className="grid grid-cols-3 gap-2">
+              {/* Telebirr */}
+              <div 
+                onClick={() => setSelectedPaymentMethod('telebirr')}
+                className={`p-2.5 rounded-xl text-center cursor-pointer border-2 transition-all ${selectedPaymentMethod === 'telebirr' ? 'border-emerald-500 bg-slate-950' : 'border-slate-800 bg-slate-950 opacity-60'}`}
+              >
+                <p className="font-bold text-[11px] text-emerald-400">Telebirr</p>
+                <p className="text-[9px] text-slate-400 mt-1">{merchantAccounts.telebirr.number}</p>
+              </div>
+
+              {/* M-Pesa */}
+              <div 
+                onClick={() => setSelectedPaymentMethod('mpesa')}
+                className={`p-2.5 rounded-xl text-center cursor-pointer border-2 transition-all ${selectedPaymentMethod === 'mpesa' ? 'border-red-500 bg-slate-950' : 'border-slate-800 bg-slate-950 opacity-60'}`}
+              >
+                <p className="font-bold text-[11px] text-red-400">M-Pesa</p>
+                <p className="text-[9px] text-slate-400 mt-1">{merchantAccounts.mpesa.number}</p>
+              </div>
+
+              {/* CBE Birr */}
+            </div>
+
+            {/* Active Account Details Box */}
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs space-y-1">
+              <p className="text-slate-400">የተመረጠው አካውንት ቁጥር:</p>
+              <p className="font-mono font-bold text-amber-400 text-sm">{merchantAccounts[selectedPaymentMethod].number}</p>
+              <p className="text-[10px] text-slate-500">ባለቤቱ: {merchantAccounts[selectedPaymentMethod].holder}</p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-slate-400">የገንዘብ መጠን (ETB)</label>
+              <input 
+                type="number" 
+                value={amount} 
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-cyan-500" 
+              />
+            </div>
+
+            {walletTab === 'withdraw' && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-400">የእርስዎ ስልክ ቁጥር (ለማውጣት)</label>
+                  <input 
+                    type="text" 
+                    placeholder="09..." 
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-cyan-500" 
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-400">ሙሉ ስም (በመንግስት መታወቂያ የተመዘገበ)</label>
+                  <input 
+                    type="text" 
+                    placeholder="ስም ያስገቡ" 
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-cyan-500" 
+                  />
+                </div>
+              </>
+            )}
+
+            <button 
+              onClick={handleSubmitTransaction}
+              className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-3 rounded-xl text-xs shadow-lg mt-2"
+            >
+              {walletTab === 'deposit' ? 'ክፍያውን አረጋግጥ (Proceed to Pay)' : 'ገንዘብ አውጣ (Submit Withdrawal)'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* BOTTOM NAVIGATION */}
+      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 grid grid-cols-5 py-2 px-1 text-center">
+        <button onClick={() => setActiveTab('bingo')} className={`flex flex-col items-center gap-1 ${activeTab === 'bingo' ? 'text-cyan-400' : 'text-slate-500'}`}>
+          <Gamepad2 size={18} />
+          <span className="text-[10px] font-bold">ቢንጎ</span>
+        </button>
+        <button onClick={() => setActiveTab('wallet')} className={`flex flex-col items-center gap-1 ${activeTab === 'wallet' ? 'text-cyan-400' : 'text-slate-500'}`}>
+          <Wallet size={18} />
+          <span className="text-[10px] font-bold">ዋሌት</span>
+        </button>
+        <button onClick={() => setActiveTab('leaderboards')} className={`flex flex-col items-center gap-1 ${activeTab === 'leaderboards' ? 'text-cyan-400' : 'text-slate-500'}`}>
+          <Trophy size={18} />
+          <span className="text-[10px] font-bold">ደረጃዎች</span>
+        </button>
+        <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center gap-1 ${activeTab === 'history' ? 'text-cyan-400' : 'text-slate-500'}`}>
+          <History size={18} />
+          <span className="text-[10px] font-bold">ታሪክ</span>
+        </button>
+        <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center gap-1 ${activeTab === 'settings' ? 'text-cyan-400' : 'text-slate-500'}`}>
+          <Settings size={18} />
+          <span className="text-[10px] font-bold">ቅንብሮች</span>
+        </button>
+      </div>
+
+    </div>
+  );
+}
